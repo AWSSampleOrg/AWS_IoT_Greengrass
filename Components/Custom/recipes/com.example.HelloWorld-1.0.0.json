@@ -1,0 +1,22 @@
+{
+  "RecipeFormatVersion": "2020-01-25",
+  "ComponentName": "com.example.HelloWorld",
+  "ComponentVersion": "1.0.0",
+  "ComponentDescription": "Sample Custom Component",
+  "ComponentPublisher": "Amazon",
+  "Manifests": [
+    {
+      "Platform": {
+        "os": "all"
+      },
+      "Lifecycle": {
+        "run": "python {artifacts:path}/hello_world.py"
+      },
+      "Artifacts": [
+        {
+          "URI": "s3://amzn-s3-demo-bucket/artifacts/hello_world.py"
+        }
+      ]
+    }
+  ]
+}

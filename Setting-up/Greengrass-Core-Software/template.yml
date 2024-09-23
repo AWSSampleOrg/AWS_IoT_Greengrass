@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: "AWS::Serverless-2016-10-31"
+Description: AWS IoT Greengrass Sample
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Default: ""
+
+  CACertificatePem:
+    Type: String
+  CertificatePem:
+    Type: String
+  VerificationCertificatePem:
+    Type: String
+
+Resources:
+  #-------------------------------------------------------
+  #   IoT Core
+  #-------------------------------------------------------
+  CACertificate:
+    Type: AWS::IoT::CACertificate
+    Properties:
+      CACertificatePem: !Sub ${CACertificatePem}
+      CertificateMode: DEFAULT
+      Status: ACTIVE
+      VerificationCertificatePem: !Sub ${VerificationCertificatePem}
+
+  ClientCertificate:
+    DependsOn:
+      - CACertificate
+    Type: AWS::IoT::Certificate
+    Properties:
+      CACertificatePem: !Sub ${CACertificatePem}
+      CertificateMode: DEFAULT
+      CertificatePem: !Sub ${CertificatePem}
+      Status: ACTIVE
+
+  MyGreengrassCore:
+    Type: AWS::IoT::Thing
+    Properties:
+      ThingName: !Sub ${ProjectPrefix}MyGreengrassCore
+
+  MyGreengrassCoreGroup:
+    Type: AWS::IoT::ThingGroup
+    Properties:
+      ThingGroupName: !Sub ${ProjectPrefix}MyGreengrassCoreGroup
+
+  # GreengrassV2IoTThingPolicy
+  GreengrassV2IoTThingPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - iot:Connect
+            Resource:
+              - !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:client/*
+          - Effect: Allow
+            Action:
+              - iot:Publish
+            Resource:
+              - !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/*
+          - Effect: Allow
+            Action:
+              - iot:Subscribe
+            Resource:
+              - !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/*
+          - Effect: Allow
+            Action:
+              - iot:Receive
+            Resource:
+              - !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/*
+          - Effect: Allow
+            Action:
+              - greengrass:*
+            Resource: "*"
+      PolicyName: !Sub ${ProjectPrefix}GreengrassV2IoTThingPolicy
+
+  GreengrassV2IoTThingPolicyPrincipalAttachment:
+    Type: AWS::IoT::PolicyPrincipalAttachment
+    Properties:
+      PolicyName: !Ref GreengrassV2IoTThingPolicy
+      Principal: !Sub ${ClientCertificate.Arn}
+
+  # Attach Certificate to Thing
+  ThingPrincipalAttachment:
+    Type: AWS::IoT::ThingPrincipalAttachment
+    Properties:
+      Principal: !Sub ${ClientCertificate.Arn}
+      ThingName: !Ref MyGreengrassCore
+
+  # GreengrassCoreTokenExchangeRoleAliasPolicy
+  GreengrassCoreTokenExchangeRoleAliasPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - iot:AssumeRoleWithCertificate
+            Resource:
+              - !Sub ${RoleAlias.RoleAliasArn}
+      PolicyName: !Sub ${ProjectPrefix}GreengrassCoreTokenExchangeRoleAliasPolicy
+
+  GreengrassCoreTokenExchangeRoleAliasPolicyPrincipalAttachment:
+    Type: AWS::IoT::PolicyPrincipalAttachment
+    Properties:
+      PolicyName: !Ref GreengrassCoreTokenExchangeRoleAliasPolicy
+      Principal: !Sub ${ClientCertificate.Arn}
+
+  RoleAlias:
+    Type: AWS::IoT::RoleAlias
+    Properties:
+      RoleAlias: GreengrassCoreTokenExchangeRoleAlias
+      RoleArn: !Sub ${GreengrassV2TokenExchangeRole.Arn}
+
+  # ------------------------------------------------------------#
+  # IAM
+  # ------------------------------------------------------------#
+  GreengrassV2TokenExchangeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - credentials.iot.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: IamListAccess
+                Effect: Allow
+                Action: "*"
+                Resource: "*"
+      Path: /
+      RoleName: !Sub ${ProjectPrefix}GreengrassV2TokenExchangeRole

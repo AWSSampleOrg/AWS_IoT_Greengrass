@@ -1,0 +1,18 @@
+---
+system:
+  certificateFilePath: "/greengrass/v2/device.pem.crt"
+  privateKeyPath: "/greengrass/v2/private.pem.key"
+  rootCaPath: "/greengrass/v2/AmazonRootCA1.pem"
+  rootpath: "/greengrass/v2"
+  thingName: "MyGreengrassCore"
+services:
+  aws.greengrass.Nucleus:
+    componentType: "NUCLEUS"
+    version: "2.13.0"
+    configuration:
+      awsRegion: "us-east-1"
+      iotRoleAlias: "GreengrassCoreTokenExchangeRoleAlias"
+      # aws iot describe-endpoint --endpoint-type iot:Data-ATS --query endpointAddress --output text
+      iotDataEndpoint: "device-data-prefix-ats.iot.us-east-1.amazonaws.com"
+      # aws iot describe-endpoint --endpoint-type iot:CredentialProvider --query endpointAddress --output text
+      iotCredEndpoint: "device-credentials-prefix.credentials.iot.us-east-1.amazonaws.com"
