@@ -1,0 +1,33 @@
+{
+  "RecipeFormatVersion": "2020-01-25",
+  "ComponentName": "com.example.Docker",
+  "ComponentVersion": "1.0.0",
+  "ComponentDescription": "A component that uses Docker Compose to run images from public Amazon ECR and Docker Hub.",
+  "ComponentPublisher": "Amazon",
+  "ComponentDependencies": {
+    "aws.greengrass.DockerApplicationManager": {
+      "VersionRequirement": "~2.0.0"
+    },
+    "aws.greengrass.TokenExchangeService": {
+      "VersionRequirement": "~2.0.0"
+    }
+  },
+  "Manifests": [
+    {
+      "Platform": {
+        "os": "all"
+      },
+      "Lifecycle": {
+        "run": "docker-compose -f {artifacts:path}/docker-compose.yaml up"
+      },
+      "Artifacts": [
+        {
+          "URI": "docker:012345678901.dkr.ecr.us-east-1.amazonaws.com/app:latest"
+        },
+        {
+          "URI": "s3://amzn-s3-demo-bucket/folder/docker-compose.yaml"
+        }
+      ]
+    }
+  ]
+}

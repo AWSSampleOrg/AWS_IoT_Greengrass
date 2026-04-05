@@ -1,0 +1,220 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: "AWS::Serverless-2016-10-31"
+Description: "AWS IoT Greengrass V2 Fleet Provisioning Setup"
+
+Parameters:
+  CertificateArn:
+    Type: String
+    Description: Certificate Arn created locally
+
+Resources:
+  GreengrassV2TokenExchangeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: GreengrassV2TokenExchangeRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: credentials.iot.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GreengrassV2TokenExchangeRoleAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                  - s3:GetBucketLocation
+                Resource: "*"
+
+  GreengrassCoreTokenExchangeRoleAlias:
+    Type: AWS::IoT::RoleAlias
+    Properties:
+      RoleAlias: GreengrassCoreTokenExchangeRoleAlias
+      RoleArn: !GetAtt GreengrassV2TokenExchangeRole.Arn
+
+  GreengrassCoreTokenExchangeRoleAliasPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyName: GreengrassCoreTokenExchangeRoleAliasPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: iot:AssumeRoleWithCertificate
+            Resource: "*"
+
+  GreengrassFleetProvisioningRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: GreengrassFleetProvisioningRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: iot.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSIoTThingsRegistration
+
+  GreengrassFleetProvisioningTemplate:
+    Type: AWS::IoT::ProvisioningTemplate
+    Properties:
+      Description: A provisioning template for Greengrass core devices.
+      Enabled: true
+      PreProvisioningHook:
+        PayloadVersion: 2020-04-01
+        TargetArn: !Sub ${PreProvisioningHookLambda.Arn}
+      ProvisioningRoleArn: !GetAtt GreengrassFleetProvisioningRole.Arn
+      TemplateName: GreengrassFleetProvisioningTemplate
+      TemplateBody: !Sub |
+        {
+          "Parameters": {
+            "ThingName": { "Type": "String" },
+            "ThingGroupName": { "Type": "String" },
+            "AWS::IoT::Certificate::Id": { "Type": "String" }
+          },
+          "Resources": {
+            "MyThing": {
+              "OverrideSettings": {
+                "AttributePayload": "REPLACE",
+                "ThingGroups": "REPLACE",
+                "ThingTypeName": "REPLACE"
+              },
+              "Properties": {
+                "AttributePayload": {},
+                "ThingGroups": [{ "Ref": "ThingGroupName" }],
+                "ThingName": { "Ref": "ThingName" }
+              },
+              "Type": "AWS::IoT::Thing"
+            },
+            "MyPolicy": {
+              "Properties": { "PolicyName": "GreengrassV2IoTThingPolicy" },
+              "Type": "AWS::IoT::Policy"
+            },
+            "MyCertificate": {
+              "Properties": {
+                "CertificateId": { "Ref": "AWS::IoT::Certificate::Id" },
+                "Status": "Active"
+              },
+              "Type": "AWS::IoT::Certificate"
+            }
+          }
+        }
+
+  ThingGroup:
+    Type: AWS::IoT::ThingGroup
+    Properties:
+      ThingGroupName: MyGreengrassCoreGroup
+
+  GreengrassV2IoTThingPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyName: GreengrassV2IoTThingPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - iot:Publish
+              - iot:Subscribe
+              - iot:Receive
+              - iot:Connect
+              - greengrass:*
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - iot:AssumeRoleWithCertificate
+            Resource:
+              - !GetAtt GreengrassCoreTokenExchangeRoleAlias.RoleAliasArn
+
+  GreengrassProvisioningClaimPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyName: GreengrassProvisioningClaimPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: iot:Connect
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - iot:Publish
+              - iot:Receive
+            Resource:
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/certificates/create/*"
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/provisioning-templates/GreengrassFleetProvisioningTemplate/provision/*"
+          - Effect: Allow
+            Action: iot:Subscribe
+            Resource:
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/$aws/certificates/create/*"
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/$aws/provisioning-templates/GreengrassFleetProvisioningTemplate/provision/*"
+
+  GreengrassProvisioningClaimPolicyAttachment:
+    Type: AWS::IoT::PolicyPrincipalAttachment
+    Properties:
+      PolicyName: !Ref GreengrassProvisioningClaimPolicy
+      Principal: !Ref CertificateArn
+
+  #-------------------------------------------------------
+  # CloudWatch LogGroup
+  #-------------------------------------------------------
+  PreProvisioningHookLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${PreProvisioningHookLambda}
+
+  #-------------------------------------------------------
+  #   Lambda
+  #-------------------------------------------------------
+  PreProvisioningHookLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: Lambda
+      FunctionName: PreProvisioningHookLambda
+      Handler: lambda_function.lambda_handler
+      MemorySize: 256
+      Role: !Sub ${LambdaRole.Arn}
+      Runtime: python3.14
+      Timeout: 5
+      #X-Ray
+      Tracing: Active
+      Environment:
+        Variables:
+          LOG_LEVEL: DEBUG
+
+  # ------------------------------------------------------------#
+  # IAM
+  # ------------------------------------------------------------#
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      Path: /
+      RoleName: PreProvisioningHookLambdaRole
+
+Outputs:
+  TokenExchangeRoleArn:
+    Value: !GetAtt GreengrassV2TokenExchangeRole.Arn
+  RoleAliasArn:
+    Value: !GetAtt GreengrassCoreTokenExchangeRoleAlias.RoleAliasArn
+  ProvisioningTemplateArn:
+    Value: !GetAtt GreengrassFleetProvisioningTemplate.TemplateArn

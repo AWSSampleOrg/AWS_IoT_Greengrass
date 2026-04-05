@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AWS IoT Greengrass V2 Manual Installation Setup"
+
+Parameters:
+  CertificateArn:
+    Type: String
+    Description: Certificate Arn created locally
+
+Resources:
+  GreengrassV2TokenExchangeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: GreengrassV2TokenExchangeRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: credentials.iot.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GreengrassV2TokenExchangeRoleAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                  - s3:GetBucketLocation
+                Resource: "*"
+
+  GreengrassCoreTokenExchangeRoleAlias:
+    Type: AWS::IoT::RoleAlias
+    Properties:
+      RoleAlias: GreengrassCoreTokenExchangeRoleAlias
+      RoleArn: !GetAtt GreengrassV2TokenExchangeRole.Arn
+
+  GreengrassCoreTokenExchangeRoleAliasPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyName: GreengrassCoreTokenExchangeRoleAliasPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: iot:AssumeRoleWithCertificate
+            Resource: "*"
+
+  GreengrassV2IoTThingPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyName: GreengrassV2IoTThingPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - iot:Publish
+              - iot:Subscribe
+              - iot:Receive
+              - iot:Connect
+              - greengrass:*
+            Resource: "*"
+
+  MyGreengrassCoreGroup:
+    Type: AWS::IoT::ThingGroup
+    Properties:
+      ThingGroupName: MyGreengrassCoreGroup
+
+  MyGreengrassCoreThing:
+    Type: AWS::IoT::Thing
+    Properties:
+      ThingName: MyGreengrassCore
+
+  ThingPrincipalAttachment:
+    Type: AWS::IoT::ThingPrincipalAttachment
+    Properties:
+      ThingName: !Ref MyGreengrassCoreThing
+      Principal: !Ref CertificateArn
+
+  IoTThingPolicyAttachment:
+    Type: AWS::IoT::PolicyPrincipalAttachment
+    Properties:
+      PolicyName: !Ref GreengrassV2IoTThingPolicy
+      Principal: !Ref CertificateArn
+
+  TokenExchangePolicyAttachment:
+    Type: AWS::IoT::PolicyPrincipalAttachment
+    Properties:
+      PolicyName: !Ref GreengrassCoreTokenExchangeRoleAliasPolicy
+      Principal: !Ref CertificateArn
+
+Outputs:
+  TokenExchangeRoleArn:
+    Value: !GetAtt GreengrassV2TokenExchangeRole.Arn
+  RoleAliasArn:
+    Value: !GetAtt GreengrassCoreTokenExchangeRoleAlias.RoleAliasArn
+  ThingName:
+    Value: !Ref MyGreengrassCoreThing
